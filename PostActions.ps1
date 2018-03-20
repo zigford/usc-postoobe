@@ -131,7 +131,50 @@ function Invoke-Schedule {
     If ($arrActions) {
         If (-Not (Get-ScheduledTask -TaskName PostOOBE)) {
             logMsg "Creating Scheduled task"
-            schtasks.exe /Create /F /RU "SYSTEM" /SC ONSTART /TN PostOOBE /TR "'C:\Windows\System32\WindowsPowershell\v1.0\powershell.exe' -File $PSCommandPath -Actions $($arrActions -Join ',')" /RL Highest
+                $TaskXML = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <URI>\PostOOBE</URI>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-18</UserId>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <IdleSettings>
+      <Duration>PT10M</Duration>
+      <WaitTimeout>PT1H</WaitTimeout>
+      <StopOnIdleEnd>true</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+  </Settings>
+  <Triggers>
+    <BootTrigger>
+    </BootTrigger>
+  </Triggers>
+  <Actions Context="Author">
+    <Exec>
+      <Command>"C:\Windows\System32\WindowsPowershell\v1.0\powershell.exe"</Command>
+      <Arguments>-File $PSCommandPath -Actions $($arrActions -Join ',')</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"@
+            $TaskDefFile = New-Item -ItemType File -Path $env:Temp -Name (Get-Random) -Value $TaskXML 
+            #schtasks.exe /Create /F /RU "SYSTEM" /SC ONSTART /TN PostOOBE /TR "'C:\Windows\System32\WindowsPowershell\v1.0\powershell.exe' -File $PSCommandPath -Actions $($arrActions -Join ',')" /RL Highest
+            schtasks.exe /Create /F /XML $TaskDefFile /TN PostOOBE
+            If ($?) {
+                logMsg "Succesfully created Scheduled task"
+                Remove-Item $TaskDefFile
+            } else {
+                logMsg "Failed to create task. Leaving task artifact $TaskDefFile"
+            }
         }
     }
     If (((Get-Process -Name explorer -ErrorAction SilentlyContinue).Count -eq 0) -or $Force) {
@@ -142,6 +185,8 @@ function Invoke-Schedule {
             logMsg "Restating with: $RebootCommand"
             Invoke-Expression $RebootCommand
         }
+    } else {
+        logMsg "Detected a logged on user. wait for user to reboot"
     }
 }
 
